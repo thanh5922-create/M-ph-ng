@@ -1,0 +1,1705 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mô Phỏng Vật Lý 3D Tên Lửa Nước</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        html, body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            overscroll-behavior: none;
+            background-color: #09101d;
+            color: #e2e8f0;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Vùng hiển thị 3D chặn cuộn/zoom trình duyệt để OrbitControls cảm ứng mượt */
+        #canvas-container,
+        #canvas-container canvas {
+            touch-action: none;
+        }
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.4);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(100, 116, 139, 0.5);
+            border-radius: 9999px;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            background: rgba(51, 65, 85, 0.7);
+            height: 6px;
+            border-radius: 999px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            border: 2px solid #0f172a;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+            transition: transform 0.1s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.18);
+        }
+        .hud-panel {
+            background: rgba(11, 18, 33, 0.86);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            box-shadow: 0 12px 32px -6px rgba(0, 0, 0, 0.65);
+            color: #e2e8f0;
+        }
+    </style>
+</head>
+<body class="w-screen h-screen relative overflow-hidden">
+
+    <!-- Canvas 3D Chính (Hỗ trợ touch-action: none) -->
+    <div id="canvas-container" class="absolute inset-0 w-full h-full z-0"></div>
+
+    <!-- =======================================================================
+         1. GIAO DIỆN MÁY TÍNH (DESKTOP - GIỮ NGUYÊN 100% BỐ CỤC CŨ)
+         ======================================================================= -->
+    <div id="desktop-top-bar" class="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+        <!-- Tiêu đề & Thông số cứng -->
+        <div class="hud-panel px-3.5 py-2 rounded-2xl flex items-center gap-3 pointer-events-auto">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center shadow-md shadow-sky-500/25 text-white">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-sm font-extrabold tracking-tight text-slate-100 leading-tight">Mô Phỏng Vật Lý 3D Tên Lửa Nước</h1>
+                <p class="text-[11px] font-medium text-slate-400">Chai 1.5L • Ống PVC 21 (20cm) • Dù Ø35cm</p>
+            </div>
+        </div>
+
+        <!-- Hiển thị nhanh Gió ngang 3D ở giữa trên cùng -->
+        <div class="hud-panel px-3.5 py-1.5 rounded-2xl flex items-center gap-2.5 pointer-events-auto border-emerald-500/25">
+            <div class="w-8 h-8 rounded-full border border-emerald-400/50 bg-emerald-950/50 flex items-center justify-center relative">
+                <span class="absolute -top-1 text-[8px] font-bold text-slate-400">B</span>
+                <svg id="hud-wind-arrow" class="w-4 h-4 text-emerald-400 transition-transform duration-150" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 5v14m0 0l-5-5m5 5l5-5"/>
+                </svg>
+            </div>
+            <div class="leading-tight">
+                <div class="text-[10px] font-medium text-slate-400">Gió ngang 3D</div>
+                <div class="mono text-xs font-bold text-emerald-400">
+                    <span id="hud-wind-speed">2.5</span> m/s (<span id="hud-wind-deg">90</span>°)
+                </div>
+            </div>
+        </div>
+
+        <!-- Cụm chọn góc nhìn Camera 3D -->
+        <div class="hud-panel p-1.5 rounded-2xl flex flex-wrap items-center gap-1 pointer-events-auto">
+            <span class="text-[11px] font-semibold text-slate-400 px-2 hidden md:inline">Góc nhìn:</span>
+            <button onclick="setCameraMode('overview')" id="cam-overview" class="cam-btn px-2.5 py-1.5 rounded-xl text-xs font-bold bg-sky-500 text-white shadow-sm shadow-sky-500/30 transition">
+                1. Toàn cảnh
+            </button>
+            <button onclick="setCameraMode('follow')" id="cam-follow" class="cam-btn px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 transition">
+                2. Bám tên lửa
+            </button>
+            <button onclick="setCameraMode('pad')" id="cam-pad" class="cam-btn px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 transition">
+                3. Bệ phóng
+            </button>
+        </div>
+
+        <!-- Nút mở bảng trên màn hình nhỏ (giữ nguyên cho Desktop thu hẹp) -->
+        <div class="flex gap-1.5 pointer-events-auto lg:hidden">
+            <button onclick="togglePanel('left-panel')" class="hud-panel px-3 py-1.5 rounded-xl text-xs font-bold text-sky-400">⚙️ Cấu hình</button>
+            <button onclick="togglePanel('right-panel')" class="hud-panel px-3 py-1.5 rounded-xl text-xs font-bold text-emerald-400">📊 Số liệu</button>
+        </div>
+    </div>
+
+    <!-- =======================================================================
+         2. GIAO DIỆN ĐIỆN THOẠI / CẢM ỨNG (MOBILE / TOUCH UI TỐI GIẢN)
+         ======================================================================= -->
+    <div id="mobile-ui" class="hidden pointer-events-none">
+        <!-- Góc trên bên phải (Top-Right): Cột dọc 3 nút từ trên xuống dưới -->
+        <div class="fixed top-3 right-3 z-30 flex flex-col items-end gap-2 pointer-events-auto">
+            <!-- 1. Nút Góc nhìn: Luân phiên Toàn cảnh -> Bám tên lửa -> Bệ phóng -->
+            <button id="mob-btn-cam" onclick="cycleCameraMode()" class="hud-panel h-10 min-w-[122px] px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-sky-300 active:scale-95 transition">
+                <svg class="w-4 h-4 text-sky-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                </svg>
+                <span id="mob-cam-label">Toàn cảnh</span>
+            </button>
+
+            <!-- 2. Nút Thông số: Bật/tắt bảng Thông số -->
+            <button id="mob-btn-telemetry" onclick="toggleMobilePanel('telemetry')" class="hud-panel h-10 min-w-[122px] px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-400 active:scale-95 transition">
+                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                </svg>
+                <span>Thông số</span>
+            </button>
+
+            <!-- 3. Nút Cấu trúc: Bật/tắt bảng Cấu trúc -->
+            <button id="mob-btn-structure" onclick="toggleMobilePanel('structure')" class="hud-panel h-10 min-w-[122px] px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-amber-300 active:scale-95 transition">
+                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
+                </svg>
+                <span>Cấu trúc</span>
+            </button>
+        </div>
+
+        <!-- Góc dưới bên trái (Bottom-Left): 1 hàng ngang gồm 3 nút (Phóng, Tốc độ, Reset) -->
+        <div class="fixed bottom-4 left-3 z-30 flex flex-row items-center gap-2 pointer-events-auto">
+            <!-- 1. Nút Phóng tên lửa -->
+            <button id="mob-btn-launch" onclick="launchRocket()" class="h-11 px-4 rounded-xl font-extrabold text-xs bg-gradient-to-r from-sky-500 to-blue-600 active:from-sky-400 active:to-blue-500 text-white shadow-lg shadow-sky-500/30 border border-sky-400/40 flex items-center gap-1.5 active:scale-95 transition">
+                <span>🚀</span>
+                <span>Phóng</span>
+            </button>
+
+            <!-- 2. Nút Tốc độ: Chỉ hiển thị đúng con số tốc độ (x0.2 -> x0.5 -> x1 -> x2) -->
+            <button id="mob-btn-speed" onclick="cycleTimeScale()" class="hud-panel mono h-11 min-w-[54px] px-3 rounded-xl font-extrabold text-xs text-sky-300 flex items-center justify-center active:scale-95 transition" title="Tốc độ mô phỏng">
+                x1
+            </button>
+
+            <!-- 3. Nút Reset: Chỉ hiển thị biểu tượng làm mới, không kèm chữ -->
+            <button id="mob-btn-reset" onclick="resetSimulation()" aria-label="Đặt lại" class="hud-panel h-11 w-11 rounded-xl text-slate-200 flex items-center justify-center active:scale-95 transition" title="Đặt lại">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- =======================================================================
+         3. BẢNG CẤU HÌNH / CẤU TRÚC (BÊN TRÁI TRÊN DESKTOP, TOGGLE TRÊN MOBILE)
+         ======================================================================= -->
+    <div id="left-panel" class="hud-panel absolute top-16 left-3 bottom-3 w-80 max-w-[calc(100vw-24px)] rounded-2xl z-20 flex flex-col overflow-hidden transition-all">
+        <div class="px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+            <span id="left-panel-title" class="text-xs font-extrabold uppercase tracking-wider text-sky-400">Cấu Hình Phóng & Gió</span>
+            <span id="left-panel-mob-hint" class="hidden text-[10px] font-medium text-slate-400">Chạm bảng để ẩn</span>
+            <button id="left-panel-desk-close" onclick="togglePanel('left-panel')" class="lg:hidden text-slate-400 hover:text-white text-xs px-2 font-bold">✕</button>
+        </div>
+
+        <div class="p-3.5 overflow-y-auto flex-1 space-y-3.5 text-xs">
+            <!-- 2 Kịch bản chính -->
+            <div>
+                <label class="block text-slate-400 font-bold mb-1.5">Kịch bản tiêu biểu (Gió mặc định):</label>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <button onclick="applyPreset('highest')" id="preset-highest" class="py-2 px-2 rounded-xl font-bold text-xs bg-sky-500 text-white shadow-sm shadow-sky-500/20 transition">
+                        ⬆️ Cao nhất (90°)
+                    </button>
+                    <button onclick="applyPreset('farthest')" id="preset-farthest" class="py-2 px-2 rounded-xl font-bold text-xs bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+                        ↗️ Xa nhất (42°)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tùy chọn Dù & Vector Lực -->
+            <div class="grid grid-cols-2 gap-2">
+                <label class="flex items-center justify-between bg-slate-900/80 p-2 rounded-xl border border-slate-700/80 cursor-pointer hover:border-sky-500/60">
+                    <span class="font-semibold text-slate-200">🪂 Dù Ø35cm</span>
+                    <input type="checkbox" id="chk-parachute" checked onchange="updateParamsFromUI()" class="w-4 h-4 accent-sky-500 rounded">
+                </label>
+                <label class="flex items-center justify-between bg-slate-900/80 p-2 rounded-xl border border-slate-700/80 cursor-pointer hover:border-sky-500/60">
+                    <span class="font-semibold text-slate-200">↗️ Vector lực</span>
+                    <input type="checkbox" id="chk-vectors" checked onchange="updateParamsFromUI()" class="w-4 h-4 accent-sky-500 rounded">
+                </label>
+            </div>
+
+            <!-- Tốc độ mô phỏng (Desktop) -->
+            <div id="left-panel-desktop-speed" class="bg-slate-900/80 p-2 rounded-xl border border-slate-700/80">
+                <div class="flex justify-between items-center">
+                    <span class="text-slate-300 font-semibold">Tốc độ thời gian:</span>
+                    <div class="flex gap-1">
+                        <button onclick="setTimeScale(0.2)" id="ts-0.2" class="ts-btn px-2 py-1 rounded-lg bg-slate-800 text-slate-300 font-bold text-[11px]">x0.2</button>
+                        <button onclick="setTimeScale(0.5)" id="ts-0.5" class="ts-btn px-2 py-1 rounded-lg bg-slate-800 text-slate-300 font-bold text-[11px]">x0.5</button>
+                        <button onclick="setTimeScale(1)" id="ts-1" class="ts-btn px-2 py-1 rounded-lg bg-sky-500 text-white font-bold text-[11px]">x1</button>
+                        <button onclick="setTimeScale(2)" id="ts-2" class="ts-btn px-2 py-1 rounded-lg bg-slate-800 text-slate-300 font-bold text-[11px]">x2</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thanh trượt thông số -->
+            <div class="space-y-2.5 border-t border-slate-800 pt-2.5">
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span class="font-semibold text-slate-300">Áp suất bơm (0–120 psi):</span>
+                        <span class="mono font-bold text-sky-400"><span id="val-psi">55</span> psi</span>
+                    </div>
+                    <input type="range" id="inp-psi" min="0" max="120" step="1" value="55" oninput="updateParamsFromUI()" class="w-full">
+                    <div id="low-press-warn" class="hidden text-[11px] font-semibold text-rose-400 mt-1">
+                        ⚠️ Áp suất quá thấp, chưa đủ lực thắng trọng lực để cất cánh!
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span class="font-semibold text-slate-300">Lượng nước (Chai 1.5L):</span>
+                        <span class="mono font-bold text-sky-400"><span id="val-water">35</span>% (<span id="val-water-ml">525</span> ml)</span>
+                    </div>
+                    <input type="range" id="inp-water" min="10" max="65" step="1" value="35" oninput="updateParamsFromUI()" class="w-full">
+                </div>
+
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span class="font-semibold text-slate-300">Góc nghiêng phóng:</span>
+                        <span class="mono font-bold text-yellow-400"><span id="val-elev">90</span>°</span>
+                    </div>
+                    <input type="range" id="inp-elev" min="25" max="90" step="1" value="90" oninput="updateParamsFromUI()" class="w-full">
+                </div>
+
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span class="font-semibold text-slate-300">Hướng xoay bệ (0° = +X):</span>
+                        <span class="mono font-bold text-yellow-400"><span id="val-azim">0</span>°</span>
+                    </div>
+                    <input type="range" id="inp-azim" min="-180" max="180" step="5" value="0" oninput="updateParamsFromUI()" class="w-full">
+                </div>
+
+                <div class="border-t border-slate-800 pt-2.5">
+                    <div class="flex justify-between mb-1">
+                        <span class="font-semibold text-slate-300">Tốc độ gió ngang:</span>
+                        <span class="mono font-bold text-emerald-400"><span id="val-wind-speed">2.5</span> m/s</span>
+                    </div>
+                    <input type="range" id="inp-wind-speed" min="0" max="10" step="0.5" value="2.5" oninput="updateParamsFromUI()" class="w-full">
+                </div>
+
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span class="font-semibold text-slate-300">Hướng gió thổi tới:</span>
+                        <span class="mono font-bold text-emerald-400"><span id="val-wind-dir">90</span>° (<span id="val-wind-cardinal">Bắc → Nam</span>)</span>
+                    </div>
+                    <input type="range" id="inp-wind-dir" min="0" max="355" step="5" value="90" oninput="updateParamsFromUI()" class="w-full">
+                </div>
+            </div>
+
+            <!-- Hộp Dự Đoán Điểm Rơi -->
+            <div class="bg-yellow-500/10 border border-yellow-500/40 rounded-xl p-2.5 space-y-1.5">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-extrabold uppercase tracking-wider text-yellow-400">🎯 Dự đoán điểm rơi</span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5 text-[11px]">
+                    <div class="bg-slate-900/90 px-2 py-1.5 rounded-lg border border-yellow-500/20">
+                        <span class="text-slate-400 block text-[10px]">Khoảng cách ngang</span>
+                        <b id="pred-range" class="mono text-yellow-400 text-xs">0.0 m</b>
+                    </div>
+                    <div class="bg-slate-900/90 px-2 py-1.5 rounded-lg border border-yellow-500/20">
+                        <span class="text-slate-400 block text-[10px]">Tọa độ rơi (X, Z)</span>
+                        <b id="pred-xz" class="mono text-slate-200 text-xs">(0.0, 0.0)</b>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Nút Phóng, Tạm Dừng & Đặt Lại (Desktop) -->
+        <div id="left-panel-desktop-footer" class="p-3 border-t border-slate-800 bg-slate-900/70 flex gap-2">
+            <button id="btn-launch" onclick="launchRocket()" class="flex-1 py-2.5 px-3 rounded-xl font-extrabold text-xs bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-lg shadow-sky-500/25 transition transform active:scale-95">
+                🚀 PHÓNG TÊN LỬA
+            </button>
+            <button onclick="togglePause()" class="py-2.5 px-3 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Tạm dừng / Tiếp tục">
+                ⏸️
+            </button>
+            <button onclick="resetSimulation()" class="py-2.5 px-3 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Đặt lại về bệ phóng">
+                🔄
+            </button>
+        </div>
+    </div>
+
+    <!-- =======================================================================
+         4. BẢNG THÔNG SỐ BAY TRỰC TIẾP (BÊN PHẢI TRÊN DESKTOP, TOGGLE TRÊN MOBILE)
+         ======================================================================= -->
+    <div id="right-panel" class="hud-panel absolute top-16 right-3 w-72 max-w-[calc(100vw-24px)] rounded-2xl z-20 flex flex-col overflow-hidden">
+        <div class="px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+            <span class="text-xs font-extrabold uppercase tracking-wider text-emerald-400">Thông Số Bay Trực Tiếp</span>
+            <span id="right-panel-mob-hint" class="hidden text-[10px] font-medium text-slate-400">Chạm bảng để ẩn</span>
+            <button id="right-panel-desk-close" onclick="togglePanel('right-panel')" class="lg:hidden text-slate-400 hover:text-white text-xs px-2 font-bold">✕</button>
+        </div>
+
+        <div class="p-3.5 overflow-y-auto space-y-3 text-xs">
+            <div class="bg-slate-900/90 text-white px-3 py-2 rounded-xl flex items-center justify-between border border-slate-700/80">
+                <span id="tel-phase" class="font-bold text-sky-400 text-xs">Sẵn sàng trên bệ</span>
+                <span id="tel-time" class="mono text-[11px] text-slate-400">0.00 s</span>
+            </div>
+
+            <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+                <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">1. Vị trí 3D</div>
+                <div class="flex items-baseline justify-between">
+                    <span class="text-slate-300 font-medium">Độ cao (Y):</span>
+                    <span class="mono text-lg font-extrabold text-sky-400"><span id="tel-y">0.0</span> <span class="text-xs font-semibold text-slate-400">m</span></span>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-800 mono text-[11px]">
+                    <div class="bg-slate-950/70 px-2 py-1 rounded-lg flex justify-between">
+                        <span class="text-slate-500">X:</span>
+                        <b id="tel-x" class="text-slate-200">0.0 m</b>
+                    </div>
+                    <div class="bg-slate-950/70 px-2 py-1 rounded-lg flex justify-between">
+                        <span class="text-slate-500">Z:</span>
+                        <b id="tel-z" class="text-slate-200">0.0 m</b>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">2. Khoảng cách ngang</div>
+                <div class="flex items-baseline justify-between">
+                    <span class="text-slate-300 font-medium">Cách bệ phóng:</span>
+                    <span class="mono text-lg font-extrabold text-yellow-400"><span id="tel-range">0.0</span> <span class="text-xs font-semibold text-slate-400">m</span></span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <div class="text-[10px] font-bold text-slate-400 uppercase">3. Vận tốc</div>
+                    <div class="mono text-base font-extrabold text-emerald-400 mt-0.5"><span id="tel-vel">0.0</span> <span class="text-[11px] font-semibold text-slate-400">m/s</span></div>
+                </div>
+                <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <div class="text-[10px] font-bold text-slate-400 uppercase">4. Khối lượng</div>
+                    <div class="mono text-base font-extrabold text-indigo-400 mt-0.5"><span id="tel-mass">620</span> <span class="text-[11px] font-semibold text-slate-400">g</span></div>
+                </div>
+            </div>
+
+            <div class="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800 space-y-1 text-[11px]">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Độ cao cực đại đạt được:</span>
+                    <b id="sum-apogee" class="mono text-sky-400">-</b>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Khoảng cách chạm đất:</span>
+                    <b id="sum-range" class="mono text-yellow-400">-</b>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Sai lệch so với dự đoán:</span>
+                    <b id="sum-error" class="mono text-emerald-400">-</b>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Thông báo nổi -->
+    <div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 hud-panel px-4 py-2 rounded-full text-xs font-semibold text-slate-100 opacity-0 pointer-events-none transition-opacity duration-300 whitespace-nowrap">
+        Thông báo
+    </div>
+
+    <script>
+        // ============================================================================
+        // 1. THÔNG SỐ VẬT LÝ THỰC TẾ (GIỮ NGUYÊN 100%)
+        // ============================================================================
+        const PHYS = {
+            g: 9.81, p_atm: 101325, rho_water: 1000, rho_air: 1.225,
+            gamma: 1.4, n_poly: 1.25, R_air: 287.05, T0: 298.15,
+            V_bottle: 0.0015, D_body: 0.090, m_dry_base: 0.115,
+            m_parachute: 0.035, CD_rocket: 0.55, CD_chute: 1.40,
+            D_chute: 0.35, Cd_nozzle: 0.82, D_nozzle: 0.015,
+            tube_length: 0.20, oring_friction: 6.5, dt: 0.002
+        };
+
+        PHYS.A_ref = Math.PI * Math.pow(PHYS.D_body / 2, 2);
+        PHYS.A_chute = Math.PI * Math.pow(PHYS.D_chute / 2, 2);
+        PHYS.A_noz = Math.PI * Math.pow(PHYS.D_nozzle / 2, 2);
+
+        // ============================================================================
+        // 2. CẤU HÌNH & TRẠNG THÁI MÔ PHỎNG
+        // ============================================================================
+        let simConfig = {
+            psi: 55, water_ratio: 0.35, elev_deg: 90, azim_deg: 0,
+            has_parachute: true, wind_speed: 2.5, wind_dir_deg: 90,
+            show_vectors: true, time_scale: 1.0
+        };
+
+        let rocketState = {
+            status: 'IDLE', phase: 'READY', t: 0,
+            pos: new THREE.Vector3(0, 0.25, 0), vel: new THREE.Vector3(0, 0, 0),
+            acc: new THREE.Vector3(0, 0, 0), dir: new THREE.Vector3(0, 1, 0),
+            V_water: 0, V_air: 0, V_air0: 0, p_abs: 0, p0_abs: 0, m_air: 0, m_total: 0,
+            dist_on_tube: 0, chute_deployed: false, chute_open_factor: 0,
+            F_thrust_vec: new THREE.Vector3(), F_grav_vec: new THREE.Vector3(),
+            F_drag_vec: new THREE.Vector3(), F_thrust_mag: 0, F_grav_mag: 0, F_drag_mag: 0,
+            max_y: 0
+        };
+
+        let predictedLanding = { pos: new THREE.Vector3(0, 0, 0), range: 0, canLiftoff: true };
+
+        // ============================================================================
+        // 3. NHẬN DIỆN THIẾT BỊ & TRẠNG THÁI GIAO DIỆN MOBILE / DESKTOP
+        // ============================================================================
+        let isMobileUI = false;
+        let activeMobilePanel = null; // null | 'telemetry' | 'structure'
+        const SPEED_STEPS = [0.2, 0.5, 1, 2];
+        const CAMERA_MODES = [
+            { id: 'overview', label: 'Toàn cảnh' },
+            { id: 'follow', label: 'Bám tên lửa' },
+            { id: 'pad', label: 'Bệ phóng' }
+        ];
+
+        function detectMobileOrTouchDevice() {
+            const isSmallViewport = window.innerWidth < 1024;
+            const isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+            const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            return isSmallViewport || isCoarsePointer || isMobileUA;
+        }
+
+        function applyResponsiveDeviceUI(forceResetPanels = false) {
+            const nextIsMobile = detectMobileOrTouchDevice();
+            const modeChanged = (nextIsMobile !== isMobileUI);
+            isMobileUI = nextIsMobile;
+
+            const desktopTopBar = document.getElementById('desktop-top-bar');
+            const mobileUI = document.getElementById('mobile-ui');
+            const leftPanel = document.getElementById('left-panel');
+            const rightPanel = document.getElementById('right-panel');
+            const toast = document.getElementById('toast');
+
+            const leftTitle = document.getElementById('left-panel-title');
+            const leftMobHint = document.getElementById('left-panel-mob-hint');
+            const leftDeskClose = document.getElementById('left-panel-desk-close');
+            const leftDeskSpeed = document.getElementById('left-panel-desktop-speed');
+            const leftDeskFooter = document.getElementById('left-panel-desktop-footer');
+
+            const rightMobHint = document.getElementById('right-panel-mob-hint');
+            const rightDeskClose = document.getElementById('right-panel-desk-close');
+
+            if (isMobileUI) {
+                // Áp dụng hoàn toàn giao diện Mobile / Touch
+                desktopTopBar.classList.add('hidden');
+                mobileUI.classList.remove('hidden');
+
+                // Bố trí bảng Cấu trúc (left-panel) & Thông số (right-panel) gọn gàng không che nút
+                leftPanel.className = 'hud-panel fixed top-3 left-3 w-[calc(100vw-146px)] min-w-[215px] max-w-[320px] max-h-[calc(100vh-88px)] rounded-2xl z-20 flex flex-col overflow-hidden transition-all';
+                rightPanel.className = 'hud-panel fixed top-3 left-3 w-[calc(100vw-146px)] min-w-[215px] max-w-[310px] max-h-[calc(100vh-88px)] rounded-2xl z-20 flex flex-col overflow-hidden transition-all';
+
+                leftTitle.textContent = 'Cấu Trúc & Thông Số Phóng';
+                leftMobHint.classList.remove('hidden');
+                leftDeskClose.classList.add('hidden');
+                leftDeskSpeed.classList.add('hidden');
+                leftDeskFooter.classList.add('hidden');
+
+                rightMobHint.classList.remove('hidden');
+                rightDeskClose.classList.add('hidden');
+
+                toast.classList.remove('bottom-4');
+                toast.classList.add('bottom-20');
+
+                if (forceResetPanels || modeChanged) {
+                    activeMobilePanel = null;
+                }
+                syncMobilePanelsVisibility();
+
+                // Cấu hình OrbitControls cho cảm ứng: 1 ngón xoay, 2 ngón chụm Zoom & kéo Pan
+                if (controls) {
+                    controls.enableRotate = true;
+                    controls.enableZoom = true;
+                    controls.enablePan = true;
+                    controls.screenSpacePanning = true;
+                    controls.touches = {
+                        ONE: THREE.TOUCH.ROTATE,
+                        TWO: THREE.TOUCH.DOLLY_PAN
+                    };
+                }
+            } else {
+                // Giữ nguyên 100% giao diện & điều khiển cũ trên Máy tính (Desktop)
+                desktopTopBar.classList.remove('hidden');
+                mobileUI.classList.add('hidden');
+
+                leftPanel.className = 'hud-panel absolute top-16 left-3 bottom-3 w-80 max-w-[calc(100vw-24px)] rounded-2xl z-10 flex flex-col overflow-hidden transition-all';
+                rightPanel.className = 'hud-panel absolute top-16 right-3 w-72 max-w-[calc(100vw-24px)] rounded-2xl z-10 flex flex-col overflow-hidden';
+
+                leftTitle.textContent = 'Cấu Hình Phóng & Gió';
+                leftMobHint.classList.add('hidden');
+                leftDeskClose.classList.remove('hidden');
+                leftDeskSpeed.classList.remove('hidden');
+                leftDeskFooter.classList.remove('hidden');
+
+                rightMobHint.classList.add('hidden');
+                rightDeskClose.classList.remove('hidden');
+
+                toast.classList.remove('bottom-20');
+                toast.classList.add('bottom-4');
+
+                if (controls) {
+                    controls.screenSpacePanning = false;
+                }
+            }
+        }
+
+        function syncMobilePanelsVisibility() {
+            if (!isMobileUI) return;
+
+            const leftPanel = document.getElementById('left-panel');
+            const rightPanel = document.getElementById('right-panel');
+            const btnTel = document.getElementById('mob-btn-telemetry');
+            const btnStr = document.getElementById('mob-btn-structure');
+
+            // Mặc định ẩn cả 2; chỉ hiện bảng đang được chọn
+            const showTel = (activeMobilePanel === 'telemetry');
+            const showStr = (activeMobilePanel === 'structure');
+
+            rightPanel.classList.toggle('hidden', !showTel);
+            leftPanel.classList.toggle('hidden', !showStr);
+
+            // Trạng thái nổi bật cho nút Thông số
+            if (showTel) {
+                btnTel.className = 'h-10 min-w-[122px] px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs font-extrabold bg-emerald-500 text-slate-950 border border-emerald-300 shadow-lg shadow-emerald-500/30 active:scale-95 transition';
+            } else {
+                btnTel.className = 'hud-panel h-10 min-w-[122px] px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-400 active:scale-95 transition';
+            }
+
+            // Trạng thái nổi bật cho nút Cấu trúc
+            if (showStr) {
+                btnStr.className = 'h-10 min-w-[122px] px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs font-extrabold bg-amber-400 text-slate-950 border border-amber-200 shadow-lg shadow-amber-400/30 active:scale-95 transition';
+            } else {
+                btnStr.className = 'hud-panel h-10 min-w-[122px] px-3 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-amber-300 active:scale-95 transition';
+            }
+        }
+
+        function toggleMobilePanel(panelKey) {
+            if (!isMobileUI) return;
+            activeMobilePanel = (activeMobilePanel === panelKey) ? null : panelKey;
+            syncMobilePanelsVisibility();
+        }
+
+        function setupMobilePanelTapToClose() {
+            const rightPanel = document.getElementById('right-panel');
+            const leftPanel = document.getElementById('left-panel');
+
+            let startX = 0, startY = 0;
+            const recordStart = (e) => {
+                const pt = e.touches ? e.touches[0] : e;
+                startX = pt.clientX;
+                startY = pt.clientY;
+            };
+
+            // Chạm vào chính bảng Thông số đang mở -> bảng sẽ ẩn đi
+            rightPanel.addEventListener('pointerdown', recordStart, { passive: true });
+            rightPanel.addEventListener('click', (e) => {
+                if (!isMobileUI || activeMobilePanel !== 'telemetry') return;
+                const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+                if (dist < 12) {
+                    toggleMobilePanel('telemetry');
+                }
+            });
+
+            // Chạm vào chính bảng Cấu trúc đang mở (ngoài thanh trượt/nút bấm điều khiển) -> bảng sẽ ẩn đi
+            leftPanel.addEventListener('pointerdown', recordStart, { passive: true });
+            leftPanel.addEventListener('click', (e) => {
+                if (!isMobileUI || activeMobilePanel !== 'structure') return;
+                const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+                if (dist < 12 && !e.target.closest('button, input, label')) {
+                    toggleMobilePanel('structure');
+                }
+            });
+        }
+
+        // ============================================================================
+        // 4. KHỞI TẠO CẢNH 3D NỀN TỐI KỸ THUẬT (GIỮ NGUYÊN 100%)
+        // ============================================================================
+        let scene, camera, renderer, controls;
+        let rocketGroup, waterMesh, parachuteGroup;
+        let launcherGroup, launchRailGroup, windsockGroup;
+        let arrowThrust, arrowGravity, arrowDrag, arrowVel;
+        let groundDropLine, groundDropMarker;
+        let predTubeMesh, predTargetGroup, predPulseRing;
+        let currentTrajLine, trajPoints = [];
+        let windStreaksMesh, windStreakData = [], waterSplashParticles = [];
+        let cameraMode = 'overview';
+
+        function initThreeJS() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x09101d);
+            scene.fog = new THREE.FogExp2(0x09101d, 0.0028);
+
+            camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(24, 18, 28);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+            controls.maxPolarAngle = Math.PI / 2 - 0.015;
+            controls.target.set(6, 7, 0);
+
+            // Đảm bảo điều khiển cảm ứng 1 ngón Rotate, 2 ngón Pinch-Zoom & Pan
+            controls.enableRotate = true;
+            controls.enableZoom = true;
+            controls.enablePan = true;
+            controls.touches = {
+                ONE: THREE.TOUCH.ROTATE,
+                TWO: THREE.TOUCH.DOLLY_PAN
+            };
+
+            const hemiLight = new THREE.HemisphereLight(0x94a3b8, 0x0f172a, 0.9);
+            scene.add(hemiLight);
+
+            const dirLight = new THREE.DirectionalLight(0xe2e8f0, 1.15);
+            dirLight.position.set(45, 90, 40);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+
+            buildTechGroundAndAxes();
+            buildLauncher();
+            buildWindsockAndWindStreaks();
+            buildRocketModel();
+            buildPredictionVisuals();
+            buildForceArrows();
+
+            window.addEventListener('resize', onWindowResize, false);
+            window.addEventListener('keydown', (e) => {
+                if (e.key === '1') setCameraMode('overview');
+                else if (e.key === '2') setCameraMode('follow');
+                else if (e.key === '3') setCameraMode('pad');
+                else if (e.code === 'Space') { e.preventDefault(); launchRocket(); }
+            });
+        }
+
+        function createLabelSprite(text, textColor = '#cbd5e1', bgColor = 'rgba(15, 23, 42, 0.88)', borderColor = 'rgba(56, 189, 248, 0.35)', scale = 1.6) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 256;
+            canvas.height = 64;
+
+            ctx.fillStyle = bgColor;
+            ctx.beginPath();
+            ctx.roundRect(10, 8, 236, 48, 10);
+            ctx.fill();
+
+            if (borderColor) {
+                ctx.strokeStyle = borderColor;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            ctx.font = 'bold 24px JetBrains Mono, monospace';
+            ctx.fillStyle = textColor;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, 128, 33);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(scale * 2.2, scale * 0.55, 1);
+            return sprite;
+        }
+
+        function buildTechGroundAndAxes() {
+            const groundGeo = new THREE.PlaneGeometry(500, 500);
+            const groundMat = new THREE.MeshStandardMaterial({
+                color: 0x0d1f24,
+                roughness: 0.92,
+                metalness: 0.1
+            });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            const grid = new THREE.GridHelper(240, 60, 0x1e3a46, 0x142b33);
+            grid.position.y = 0.01;
+            scene.add(grid);
+
+            const xAxisMat = new THREE.LineBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.55 });
+            const xAxisGeo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(-120, 0.025, 0),
+                new THREE.Vector3(120, 0.025, 0)
+            ]);
+            scene.add(new THREE.Line(xAxisGeo, xAxisMat));
+
+            const zAxisMat = new THREE.LineBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.55 });
+            const zAxisGeo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0.025, -120),
+                new THREE.Vector3(0, 0.025, 120)
+            ]);
+            scene.add(new THREE.Line(zAxisGeo, zAxisMat));
+
+            const radii = [5, 10, 15, 20, 30, 40, 50, 60, 80, 100];
+            radii.forEach(r => {
+                const isMajor = (r === 10 || r === 20 || r === 30 || r === 50 || r === 80 || r === 100);
+                const ringGeo = new THREE.RingGeometry(r - (isMajor ? 0.07 : 0.04), r + (isMajor ? 0.07 : 0.04), 128);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: isMajor ? 0x38bdf8 : 0x475569,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: isMajor ? 0.65 : 0.4
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = -Math.PI / 2;
+                ring.position.y = 0.02;
+                scene.add(ring);
+
+                if (r >= 10) {
+                    const labelX = createLabelSprite(`${r}m`, '#cbd5e1', 'rgba(15, 23, 42, 0.85)', 'rgba(56, 189, 248, 0.35)', 1.35);
+                    labelX.position.set(r, 0.5, 0.9);
+                    scene.add(labelX);
+
+                    if (r <= 40) {
+                        const labelZ = createLabelSprite(`${r}m`, '#cbd5e1', 'rgba(15, 23, 42, 0.85)', 'rgba(56, 189, 248, 0.35)', 1.35);
+                        labelZ.position.set(0.9, 0.5, r);
+                        scene.add(labelZ);
+                    }
+                }
+            });
+
+            const yAxisMat = new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.7 });
+            const yAxisGeo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 60, 0)
+            ]);
+            scene.add(new THREE.Line(yAxisGeo, yAxisMat));
+
+            for (let h = 5; h <= 55; h += 5) {
+                const tickGeo = new THREE.BufferGeometry().setFromPoints([
+                    new THREE.Vector3(0, h, 0),
+                    new THREE.Vector3(0.45, h, 0)
+                ]);
+                const tickMat = new THREE.LineBasicMaterial({ color: h % 10 === 0 ? 0xf59e0b : 0x94a3b8 });
+                scene.add(new THREE.Line(tickGeo, tickMat));
+
+                const hLabel = createLabelSprite(`${h}m`, '#e2e8f0', 'rgba(15, 23, 42, 0.88)', 'rgba(148, 163, 184, 0.35)', 1.25);
+                hLabel.position.set(-1.7, h, 0);
+                scene.add(hLabel);
+            }
+
+            const compassDirs = [
+                { text: 'ĐÔNG (+X / 0°)', pos: [4.2, 0.3, 0], color: '#34d399' },
+                { text: 'TÂY (-X / 180°)', pos: [-4.2, 0.3, 0], color: '#94a3b8' },
+                { text: 'NAM (+Z / 90°)', pos: [0, 0.3, 4.2], color: '#34d399' },
+                { text: 'BẮC (-Z / 270°)', pos: [0, 0.3, -4.2], color: '#94a3b8' }
+            ];
+            compassDirs.forEach(item => {
+                const sp = createLabelSprite(item.text, item.color, 'rgba(15, 23, 42, 0.85)', 'rgba(52, 211, 153, 0.35)', 1.15);
+                sp.position.set(...item.pos);
+                scene.add(sp);
+            });
+        }
+
+        function buildLauncher() {
+            launcherGroup = new THREE.Group();
+
+            const padBase = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.95, 1.1, 0.14, 24),
+                new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6, metalness: 0.5 })
+            );
+            padBase.position.y = 0.07;
+            padBase.receiveShadow = true;
+            launcherGroup.add(padBase);
+
+            launchRailGroup = new THREE.Group();
+            launchRailGroup.position.y = 0.25;
+
+            const pivot = new THREE.Mesh(
+                new THREE.SphereGeometry(0.13, 16, 16),
+                new THREE.MeshStandardMaterial({ color: 0xea580c, metalness: 0.5, roughness: 0.3 })
+            );
+            launchRailGroup.add(pivot);
+
+            const pvcLenVis = PHYS.tube_length * 2.2;
+            const tubeGeo = new THREE.CylinderGeometry(0.024, 0.024, pvcLenVis, 16);
+            tubeGeo.translate(0, pvcLenVis / 2, 0);
+            const tubeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.3, metalness: 0.2 });
+            launchRailGroup.add(new THREE.Mesh(tubeGeo, tubeMat));
+
+            const oring = new THREE.Mesh(
+                new THREE.TorusGeometry(0.026, 0.005, 8, 20),
+                new THREE.MeshBasicMaterial({ color: 0x0f172a })
+            );
+            oring.rotation.x = Math.PI / 2;
+            oring.position.y = pvcLenVis * 0.75;
+            launchRailGroup.add(oring);
+
+            launcherGroup.add(launchRailGroup);
+            scene.add(launcherGroup);
+        }
+
+        function buildWindsockAndWindStreaks() {
+            const pole = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.04, 0.06, 4.0, 10),
+                new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7 })
+            );
+            pole.position.set(2.8, 2.0, -2.8);
+            scene.add(pole);
+
+            windsockGroup = new THREE.Group();
+            windsockGroup.position.set(2.8, 3.9, -2.8);
+
+            for (let i = 0; i < 5; i++) {
+                const r1 = 0.22 - i * 0.022;
+                const r2 = 0.198 - i * 0.022;
+                const segGeo = new THREE.CylinderGeometry(r2, r1, 0.3, 16, 1, true);
+                segGeo.rotateZ(-Math.PI / 2);
+                segGeo.translate(0.15 + i * 0.3, 0, 0);
+                const segMat = new THREE.MeshStandardMaterial({
+                    color: i % 2 === 0 ? 0xf97316 : 0xffffff,
+                    side: THREE.DoubleSide,
+                    roughness: 0.5
+                });
+                windsockGroup.add(new THREE.Mesh(segGeo, segMat));
+            }
+            scene.add(windsockGroup);
+
+            const streakCount = 260;
+            const positions = new Float32Array(streakCount * 6);
+            windStreakData = [];
+            for (let i = 0; i < streakCount; i++) {
+                windStreakData.push({
+                    x: (Math.random() - 0.5) * 90,
+                    y: 0.6 + Math.random() * 34,
+                    z: (Math.random() - 0.5) * 90,
+                    len: 0.8 + Math.random() * 1.4
+                });
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const mat = new THREE.LineBasicMaterial({
+                color: 0x34d399,
+                transparent: true,
+                opacity: 0.55
+            });
+            windStreaksMesh = new THREE.LineSegments(geo, mat);
+            scene.add(windStreaksMesh);
+        }
+
+        function buildRocketModel() {
+            const visScale = 2.2;
+            rocketGroup = new THREE.Group();
+            rocketGroup.scale.set(visScale, visScale, visScale);
+
+            const neck = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.013, 0.018, 0.045, 16),
+                new THREE.MeshStandardMaterial({ color: 0x334155 })
+            );
+            neck.position.y = 0.0225;
+            rocketGroup.add(neck);
+
+            const petMat = new THREE.MeshPhysicalMaterial({
+                color: 0xe0f2fe,
+                transparent: true,
+                opacity: 0.45,
+                roughness: 0.1,
+                metalness: 0.05,
+                side: THREE.DoubleSide
+            });
+
+            const shoulder = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.013, 0.055, 20), petMat);
+            shoulder.position.y = 0.0725;
+            rocketGroup.add(shoulder);
+
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.21, 24), petMat);
+            body.position.y = 0.205;
+            rocketGroup.add(body);
+
+            const waterGeo = new THREE.CylinderGeometry(0.043, 0.043, 0.21, 20);
+            waterGeo.translate(0, 0.105, 0);
+            waterMesh = new THREE.Mesh(
+                waterGeo,
+                new THREE.MeshStandardMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85 })
+            );
+            waterMesh.position.y = 0.10;
+            rocketGroup.add(waterMesh);
+
+            const nose = new THREE.Mesh(
+                new THREE.ConeGeometry(0.0455, 0.15, 24),
+                new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3 })
+            );
+            nose.position.y = 0.31 + 0.075;
+            rocketGroup.add(nose);
+
+            const finShape = new THREE.Shape();
+            finShape.moveTo(0, 0);
+            finShape.lineTo(0.055, -0.015);
+            finShape.lineTo(0.055, 0.045);
+            finShape.lineTo(0, 0.11);
+            finShape.closePath();
+
+            const finGeo = new THREE.ExtrudeGeometry(finShape, { depth: 0.003, bevelEnabled: false });
+            const finMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.35 });
+
+            for (let i = 0; i < 4; i++) {
+                const pivot = new THREE.Group();
+                pivot.rotation.y = (i * Math.PI) / 2;
+                const fin = new THREE.Mesh(finGeo, finMat);
+                fin.position.set(0.044, 0.08, -0.0015);
+                pivot.add(fin);
+                rocketGroup.add(pivot);
+            }
+
+            parachuteGroup = new THREE.Group();
+            parachuteGroup.position.set(0, 0.56, 0);
+            parachuteGroup.visible = false;
+
+            const canopy = new THREE.Mesh(
+                new THREE.SphereGeometry(0.175, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.55),
+                new THREE.MeshStandardMaterial({ color: 0xf97316, side: THREE.DoubleSide, roughness: 0.55 })
+            );
+            canopy.position.y = 0.175;
+            parachuteGroup.add(canopy);
+
+            const cordPts = [];
+            for (let i = 0; i < 8; i++) {
+                const a = (i * Math.PI * 2) / 8;
+                cordPts.push(new THREE.Vector3(0, -0.28, 0));
+                cordPts.push(new THREE.Vector3(0.175 * Math.cos(a), 0.175, 0.175 * Math.sin(a)));
+            }
+            parachuteGroup.add(new THREE.LineSegments(
+                new THREE.BufferGeometry().setFromPoints(cordPts),
+                new THREE.LineBasicMaterial({ color: 0xf8fafc })
+            ));
+            rocketGroup.add(parachuteGroup);
+
+            scene.add(rocketGroup);
+        }
+
+        function buildPredictionVisuals() {
+            const predMat = new THREE.MeshBasicMaterial({
+                color: 0xfacc15,
+                transparent: true,
+                opacity: 0.95
+            });
+            predTubeMesh = new THREE.Mesh(new THREE.BufferGeometry(), predMat);
+            scene.add(predTubeMesh);
+
+            predTargetGroup = new THREE.Group();
+
+            const safeZone = new THREE.Mesh(
+                new THREE.RingGeometry(2.8, 3.0, 48),
+                new THREE.MeshBasicMaterial({ color: 0xeab308, side: THREE.DoubleSide, transparent: true, opacity: 0.5 })
+            );
+            safeZone.rotation.x = -Math.PI / 2;
+            safeZone.position.y = 0.04;
+            predTargetGroup.add(safeZone);
+
+            const outerRing = new THREE.Mesh(
+                new THREE.RingGeometry(0.75, 1.1, 36),
+                new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide })
+            );
+            outerRing.rotation.x = -Math.PI / 2;
+            outerRing.position.y = 0.05;
+            predTargetGroup.add(outerRing);
+
+            const innerDisc = new THREE.Mesh(
+                new THREE.CircleGeometry(0.4, 24),
+                new THREE.MeshBasicMaterial({ color: 0xfef08a, side: THREE.DoubleSide })
+            );
+            innerDisc.rotation.x = -Math.PI / 2;
+            innerDisc.position.y = 0.055;
+            predTargetGroup.add(innerDisc);
+
+            predPulseRing = new THREE.Mesh(
+                new THREE.RingGeometry(1.15, 1.35, 36),
+                new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+            );
+            predPulseRing.rotation.x = -Math.PI / 2;
+            predPulseRing.position.y = 0.05;
+            predTargetGroup.add(predPulseRing);
+
+            scene.add(predTargetGroup);
+
+            currentTrajLine = new THREE.Line(
+                new THREE.BufferGeometry(),
+                new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 })
+            );
+            scene.add(currentTrajLine);
+
+            groundDropLine = new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 1, 0)]),
+                new THREE.LineDashedMaterial({ color: 0x94a3b8, dashSize: 0.4, gapSize: 0.3, transparent: true, opacity: 0.5 })
+            );
+            scene.add(groundDropLine);
+
+            groundDropMarker = new THREE.Mesh(
+                new THREE.RingGeometry(0.2, 0.38, 24),
+                new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
+            );
+            groundDropMarker.rotation.x = -Math.PI / 2;
+            groundDropMarker.position.y = 0.06;
+            scene.add(groundDropMarker);
+        }
+
+        function buildForceArrows() {
+            const o = new THREE.Vector3();
+            arrowThrust = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), o, 1, 0xef4444, 0.4, 0.22);
+            arrowGravity = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), o, 1, 0x3b82f6, 0.4, 0.22);
+            arrowDrag = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), o, 1, 0xf59e0b, 0.4, 0.22);
+            arrowVel = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), o, 1, 0x10b981, 0.35, 0.2);
+
+            scene.add(arrowThrust);
+            scene.add(arrowGravity);
+            scene.add(arrowDrag);
+            scene.add(arrowVel);
+        }
+
+        // ============================================================================
+        // 5. BỘ GIẢI VẬT LÝ & DỰ ĐOÁN QUỸ ĐẠO (GIỮ NGUYÊN 100%)
+        // ============================================================================
+        function getLaunchDirectionVector() {
+            const elevRad = THREE.MathUtils.degToRad(simConfig.elev_deg);
+            const azimRad = THREE.MathUtils.degToRad(simConfig.azim_deg);
+            const horiz = Math.cos(elevRad);
+            return new THREE.Vector3(
+                horiz * Math.cos(azimRad),
+                Math.sin(elevRad),
+                horiz * Math.sin(azimRad)
+            ).normalize();
+        }
+
+        function getWindVector() {
+            if (simConfig.wind_speed <= 0.01) return new THREE.Vector3(0, 0, 0);
+            const dirRad = THREE.MathUtils.degToRad(simConfig.wind_dir_deg);
+            return new THREE.Vector3(
+                simConfig.wind_speed * Math.cos(dirRad),
+                0,
+                simConfig.wind_speed * Math.sin(dirRad)
+            );
+        }
+
+        function createInitialPhysicsState() {
+            const launchDir = getLaunchDirectionVector();
+            const m_dry = PHYS.m_dry_base + (simConfig.has_parachute ? PHYS.m_parachute : 0);
+            const V_water = PHYS.V_bottle * simConfig.water_ratio;
+            const V_air0 = PHYS.V_bottle - V_water;
+            const p0_abs = PHYS.p_atm + simConfig.psi * 6894.76;
+            const m_air = (p0_abs * V_air0) / (PHYS.R_air * PHYS.T0);
+            const m_total = m_dry + V_water * PHYS.rho_water + m_air;
+
+            return {
+                t: 0, pos: new THREE.Vector3(0, 0.25, 0), vel: new THREE.Vector3(0, 0, 0),
+                acc: new THREE.Vector3(0, 0, 0), dir: launchDir.clone(),
+                V_water, V_air: V_air0, V_air0, p_abs: p0_abs, p0_abs, m_air, m_total,
+                dist_on_tube: 0, chute_deployed: false, chute_open_factor: 0, phase: 'READY',
+                F_thrust_vec: new THREE.Vector3(), F_grav_vec: new THREE.Vector3(0, -m_total * PHYS.g, 0),
+                F_drag_vec: new THREE.Vector3(), F_thrust_mag: 0, F_grav_mag: m_total * PHYS.g,
+                F_drag_mag: 0, max_y: 0
+            };
+        }
+
+        function advanceStateStep(st, dt, launchDir, windVec) {
+            const m_dry = PHYS.m_dry_base + (simConfig.has_parachute ? PHYS.m_parachute : 0);
+            let F_thrust = 0;
+            const onTube = st.dist_on_tube < PHYS.tube_length;
+
+            if (onTube) {
+                st.phase = 'TUBE';
+                const V_air_eff = st.V_air0 + PHYS.A_noz * st.dist_on_tube;
+                st.p_abs = st.p0_abs * Math.pow(st.V_air0 / V_air_eff, PHYS.n_poly);
+                const dp = Math.max(0, st.p_abs - PHYS.p_atm);
+                F_thrust = Math.max(0, dp * PHYS.A_noz - PHYS.oring_friction);
+                st.dir.copy(launchDir);
+            } else if (st.V_water > 1e-7 && st.p_abs > PHYS.p_atm + 100) {
+                st.phase = 'WATER';
+                st.V_air = PHYS.V_bottle - st.V_water;
+                st.p_abs = st.p0_abs * Math.pow(st.V_air0 / st.V_air, PHYS.n_poly);
+                const dp = Math.max(0, st.p_abs - PHYS.p_atm);
+                const v_e = PHYS.Cd_nozzle * Math.sqrt((2 * dp) / PHYS.rho_water);
+                const dV = Math.min(st.V_water, PHYS.Cd_nozzle * PHYS.A_noz * v_e * dt);
+                st.V_water -= dV;
+                F_thrust = 2 * Math.pow(PHYS.Cd_nozzle, 2) * PHYS.A_noz * dp;
+            } else if (st.p_abs > PHYS.p_atm + 300 && st.m_air > 1e-5) {
+                st.phase = 'AIR';
+                st.V_water = 0;
+                const T_air = PHYS.T0 * Math.pow(st.p_abs / st.p0_abs, (PHYS.gamma - 1) / PHYS.gamma);
+                const p_ratio = st.p_abs / PHYS.p_atm;
+                const p_crit = Math.pow((PHYS.gamma + 1) / 2, PHYS.gamma / (PHYS.gamma - 1));
+                let m_dot = 0, v_e = 0, p_exit = PHYS.p_atm;
+
+                if (p_ratio >= p_crit) {
+                    const factor = Math.sqrt((PHYS.gamma / (PHYS.R_air * T_air)) * Math.pow(2 / (PHYS.gamma + 1), (PHYS.gamma + 1) / (PHYS.gamma - 1)));
+                    m_dot = PHYS.Cd_nozzle * PHYS.A_noz * st.p_abs * factor;
+                    v_e = Math.sqrt(PHYS.gamma * PHYS.R_air * T_air * (2 / (PHYS.gamma + 1)));
+                    p_exit = st.p_abs * Math.pow(2 / (PHYS.gamma + 1), PHYS.gamma / (PHYS.gamma - 1));
+                } else {
+                    const term = Math.pow(PHYS.p_atm / st.p_abs, 2 / PHYS.gamma) - Math.pow(PHYS.p_atm / st.p_abs, (PHYS.gamma + 1) / PHYS.gamma);
+                    v_e = PHYS.Cd_nozzle * Math.sqrt(Math.max(0, (2 * PHYS.gamma / (PHYS.gamma - 1)) * PHYS.R_air * T_air * term));
+                    const rho_ex = (st.m_air / PHYS.V_bottle) * Math.pow(PHYS.p_atm / st.p_abs, 1 / PHYS.gamma);
+                    m_dot = rho_ex * PHYS.A_noz * v_e;
+                }
+                const dm = Math.min(st.m_air * 0.4, m_dot * dt);
+                st.m_air -= dm;
+                st.p_abs *= Math.pow(st.m_air / (st.m_air + dm), PHYS.gamma);
+                F_thrust = (dm / dt) * v_e + PHYS.A_noz * Math.max(0, p_exit - PHYS.p_atm);
+            } else {
+                F_thrust = 0;
+                st.p_abs = PHYS.p_atm;
+                if (st.vel.y < -0.15 && st.t > 0.25) {
+                    if (simConfig.has_parachute) {
+                        st.chute_deployed = true;
+                        st.phase = 'PARACHUTE';
+                    } else {
+                        st.phase = 'FREEFALL';
+                    }
+                } else {
+                    st.phase = 'COAST';
+                }
+            }
+
+            st.m_total = m_dry + st.V_water * PHYS.rho_water + st.m_air;
+
+            const v_rel = new THREE.Vector3().subVectors(st.vel, windVec);
+            const v_rel_mag = v_rel.length();
+
+            if (!onTube && !st.chute_deployed && v_rel_mag > 1.2) {
+                const targetDir = v_rel.clone().normalize();
+                const alignRate = Math.min(1.0, 11.0 * dt * (v_rel_mag / 14.0));
+                st.dir.lerp(targetDir, alignRate).normalize();
+            } else if (st.chute_deployed) {
+                const hangDir = new THREE.Vector3(-v_rel.x * 0.08, 1.0, -v_rel.z * 0.08).normalize();
+                st.dir.lerp(hangDir, 4.0 * dt).normalize();
+                st.chute_open_factor = Math.min(1.0, st.chute_open_factor + 2.5 * dt);
+            }
+
+            st.F_thrust_vec.copy(st.dir).multiplyScalar(F_thrust);
+            st.F_thrust_mag = F_thrust;
+
+            st.F_grav_vec.set(0, -st.m_total * PHYS.g, 0);
+            st.F_grav_mag = st.m_total * PHYS.g;
+
+            let CdA = PHYS.CD_rocket * PHYS.A_ref;
+            if (st.chute_deployed) {
+                CdA += (PHYS.CD_chute * PHYS.A_chute) * st.chute_open_factor;
+            }
+            const dragMag = 0.5 * PHYS.rho_air * CdA * v_rel_mag * v_rel_mag;
+            if (v_rel_mag > 1e-5) {
+                st.F_drag_vec.copy(v_rel).normalize().multiplyScalar(-dragMag);
+            } else {
+                st.F_drag_vec.set(0, 0, 0);
+            }
+            st.F_drag_mag = dragMag;
+
+            const F_net = new THREE.Vector3()
+                .add(st.F_thrust_vec)
+                .add(st.F_grav_vec)
+                .add(st.F_drag_vec);
+
+            if (onTube) {
+                const F_along = Math.max(0, F_net.dot(launchDir));
+                st.acc.copy(launchDir).multiplyScalar(F_along / st.m_total);
+                st.vel.addScaledVector(st.acc, dt);
+                const ds = st.vel.length() * dt;
+                st.dist_on_tube += ds;
+                st.pos.addScaledVector(launchDir, ds);
+            } else {
+                st.acc.copy(F_net).divideScalar(st.m_total);
+                st.vel.addScaledVector(st.acc, dt);
+                st.pos.addScaledVector(st.vel, dt);
+            }
+
+            st.t += dt;
+            const alt = Math.max(0, st.pos.y - 0.25);
+            if (alt > st.max_y) st.max_y = alt;
+        }
+
+        function computePredictedTrajectory() {
+            const simSt = createInitialPhysicsState();
+            const launchDir = getLaunchDirectionVector();
+            const windVec = getWindVector();
+
+            const dp0 = simConfig.psi * 6894.76;
+            const fThrust0 = Math.max(0, dp0 * PHYS.A_noz - PHYS.oring_friction);
+            const fGravAlong0 = simSt.m_total * PHYS.g * launchDir.y;
+            const canLiftoff = fThrust0 > fGravAlong0 + 0.2;
+
+            document.getElementById('low-press-warn').classList.toggle('hidden', canLiftoff);
+            predictedLanding.canLiftoff = canLiftoff;
+
+            const pts = [simSt.pos.clone()];
+            if (canLiftoff) {
+                const predDt = 0.005;
+                let safetySteps = 0;
+                while (safetySteps < 6000) {
+                    advanceStateStep(simSt, predDt, launchDir, windVec);
+                    safetySteps++;
+                    if (safetySteps % 6 === 0) {
+                        const last = pts[pts.length - 1];
+                        if (last.distanceTo(simSt.pos) > 0.25) {
+                            pts.push(simSt.pos.clone());
+                        }
+                    }
+                    if (simSt.t > 0.08 && simSt.pos.y <= 0.25 && simSt.vel.y <= 0) {
+                        simSt.pos.y = 0.25;
+                        pts.push(simSt.pos.clone());
+                        break;
+                    }
+                }
+            }
+
+            predictedLanding.pos.set(simSt.pos.x, 0, simSt.pos.z);
+            predictedLanding.range = Math.hypot(simSt.pos.x, simSt.pos.z);
+
+            predTubeMesh.geometry.dispose();
+            if (pts.length >= 2) {
+                const curve = new THREE.CatmullRomCurve3(pts);
+                const segments = Math.min(240, Math.max(32, pts.length * 2));
+                predTubeMesh.geometry = new THREE.TubeGeometry(curve, segments, 0.12, 8, false);
+                predTubeMesh.visible = true;
+            } else {
+                predTubeMesh.geometry = new THREE.BufferGeometry();
+                predTubeMesh.visible = false;
+            }
+
+            predTargetGroup.position.set(predictedLanding.pos.x, 0, predictedLanding.pos.z);
+
+            document.getElementById('pred-range').textContent = `${predictedLanding.range.toFixed(1)} m`;
+            document.getElementById('pred-xz').textContent = `(${predictedLanding.pos.x.toFixed(1)}, ${predictedLanding.pos.z.toFixed(1)})`;
+        }
+
+        function initializeRocketPhysics() {
+            const st = createInitialPhysicsState();
+            Object.assign(rocketState, st);
+            rocketState.status = 'IDLE';
+            rocketState.phase = 'READY';
+            trajPoints = [rocketState.pos.clone()];
+            updateCurrentTrajLine();
+            updateVisuals();
+        }
+
+        // ============================================================================
+        // 6. HIỆU ỨNG NƯỚC BẮN & VỆT GIÓ 3D (GIỮ NGUYÊN 100%)
+        // ============================================================================
+        function spawnWaterSplash(originPos, dirVec) {
+            const dropGeo = new THREE.SphereGeometry(0.055, 6, 6);
+            const dropMat = new THREE.MeshBasicMaterial({ color: 0xbae6fd, transparent: true, opacity: 0.85 });
+            for (let i = 0; i < 4; i++) {
+                const drop = new THREE.Mesh(dropGeo, dropMat);
+                drop.position.copy(originPos);
+                const spread = new THREE.Vector3(
+                    (Math.random() - 0.5) * 3.5,
+                    (Math.random() - 0.5) * 3.5,
+                    (Math.random() - 0.5) * 3.5
+                );
+                const vel = dirVec.clone().multiplyScalar(-9 - Math.random() * 6).add(spread);
+                scene.add(drop);
+                waterSplashParticles.push({ mesh: drop, vel, life: 0.45 });
+            }
+        }
+
+        function updateParticles(dt) {
+            for (let i = waterSplashParticles.length - 1; i >= 0; i--) {
+                const p = waterSplashParticles[i];
+                p.life -= dt;
+                p.vel.y -= PHYS.g * dt;
+                p.mesh.position.addScaledVector(p.vel, dt);
+                if (p.mesh.position.y <= 0.05) {
+                    p.mesh.position.y = 0.05;
+                    p.vel.y *= -0.25;
+                    p.vel.x *= 0.6;
+                    p.vel.z *= 0.6;
+                }
+                p.mesh.material.opacity = Math.max(0, p.life * 1.8);
+                if (p.life <= 0) {
+                    scene.remove(p.mesh);
+                    waterSplashParticles.splice(i, 1);
+                }
+            }
+
+            const windVec = getWindVector();
+            const hasWind = simConfig.wind_speed > 0.05;
+            windStreaksMesh.visible = hasWind;
+            if (hasWind) {
+                const windDir = windVec.clone().normalize();
+                const speedFactor = simConfig.wind_speed * 2.4;
+                const posArr = windStreaksMesh.geometry.attributes.position.array;
+
+                for (let i = 0; i < windStreakData.length; i++) {
+                    const s = windStreakData[i];
+                    s.x += windDir.x * speedFactor * dt;
+                    s.z += windDir.z * speedFactor * dt;
+
+                    if (s.x > 45) s.x -= 90;
+                    if (s.x < -45) s.x += 90;
+                    if (s.z > 45) s.z -= 90;
+                    if (s.z < -45) s.z += 90;
+
+                    const streakLen = s.len * (0.6 + simConfig.wind_speed * 0.18);
+                    const idx = i * 6;
+                    posArr[idx]     = s.x;
+                    posArr[idx + 1] = s.y;
+                    posArr[idx + 2] = s.z;
+                    posArr[idx + 3] = s.x - windDir.x * streakLen;
+                    posArr[idx + 4] = s.y;
+                    posArr[idx + 5] = s.z - windDir.z * streakLen;
+                }
+                windStreaksMesh.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
+        function updateCurrentTrajLine() {
+            currentTrajLine.geometry.dispose();
+            currentTrajLine.geometry = new THREE.BufferGeometry().setFromPoints(trajPoints);
+        }
+
+        function updateVisuals() {
+            const launchDir = getLaunchDirectionVector();
+            const upVec = new THREE.Vector3(0, 1, 0);
+            launchRailGroup.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(upVec, launchDir));
+
+            const windRad = THREE.MathUtils.degToRad(simConfig.wind_dir_deg);
+            windsockGroup.rotation.y = -windRad;
+            const liftAngle = Math.min(0, -Math.PI / 2.3 + (simConfig.wind_speed / 8.0) * (Math.PI / 2.3));
+            windsockGroup.rotation.z = liftAngle;
+
+            rocketGroup.position.copy(rocketState.pos);
+            rocketGroup.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(upVec, rocketState.dir.clone().normalize()));
+
+            const fillFrac = Math.max(0, rocketState.V_water / PHYS.V_bottle);
+            waterMesh.visible = fillFrac > 0.005;
+            if (waterMesh.visible) waterMesh.scale.set(1, fillFrac, 1);
+
+            parachuteGroup.visible = rocketState.chute_deployed;
+            if (parachuteGroup.visible) {
+                const s = Math.max(0.05, rocketState.chute_open_factor);
+                parachuteGroup.scale.set(s, s, s);
+            }
+
+            const groundPt = new THREE.Vector3(rocketState.pos.x, 0.05, rocketState.pos.z);
+            groundDropLine.geometry.setFromPoints([rocketState.pos, groundPt]);
+            groundDropLine.computeLineDistances();
+            groundDropMarker.position.set(rocketState.pos.x, 0.06, rocketState.pos.z);
+
+            const pulse = 1 + 0.25 * Math.sin(performance.now() * 0.005);
+            predPulseRing.scale.set(pulse, pulse, 1);
+
+            const centerPos = rocketState.pos.clone().addScaledVector(rocketState.dir, 0.45);
+            const showVec = simConfig.show_vectors;
+
+            arrowThrust.visible = showVec && rocketState.F_thrust_mag > 0.5;
+            if (arrowThrust.visible) {
+                arrowThrust.position.copy(centerPos);
+                arrowThrust.setDirection(rocketState.F_thrust_vec.clone().normalize());
+                arrowThrust.setLength(Math.min(6.0, 0.7 + Math.log10(1 + rocketState.F_thrust_mag) * 1.8), 0.4, 0.22);
+            }
+
+            arrowGravity.visible = showVec;
+            if (arrowGravity.visible) {
+                arrowGravity.position.copy(centerPos);
+                arrowGravity.setDirection(new THREE.Vector3(0, -1, 0));
+                arrowGravity.setLength(0.7 + Math.log10(1 + rocketState.F_grav_mag) * 1.5, 0.4, 0.22);
+            }
+
+            arrowDrag.visible = showVec && rocketState.F_drag_mag > 0.1;
+            if (arrowDrag.visible) {
+                arrowDrag.position.copy(centerPos);
+                arrowDrag.setDirection(rocketState.F_drag_vec.clone().normalize());
+                arrowDrag.setLength(Math.min(5.5, 0.6 + Math.log10(1 + rocketState.F_drag_mag) * 1.8), 0.4, 0.22);
+            }
+
+            const spd = rocketState.vel.length();
+            arrowVel.visible = showVec && spd > 0.3;
+            if (arrowVel.visible) {
+                arrowVel.position.copy(centerPos);
+                arrowVel.setDirection(rocketState.vel.clone().normalize());
+                arrowVel.setLength(Math.min(5.5, 0.7 + spd * 0.15), 0.35, 0.2);
+            }
+        }
+
+        // ============================================================================
+        // 7. CẬP NHẬT SỐ LIỆU & ĐIỀU KHIỂN GIAO DIỆN
+        // ============================================================================
+        const PHASE_NAMES = {
+            'READY': 'Sẵn sàng trên bệ',
+            'TUBE': 'Trượt ống PVC 21 (20cm)',
+            'WATER': 'Phụt nước tạo lực đẩy',
+            'AIR': 'Xả khí nén dư',
+            'COAST': 'Bay quán tính',
+            'PARACHUTE': 'Bung dù Ø35cm hạ cánh',
+            'FREEFALL': 'Rơi tự do (Không dù)',
+            'LANDED': 'Đã chạm đất'
+        };
+
+        function updateTelemetryUI() {
+            document.getElementById('tel-phase').textContent = PHASE_NAMES[rocketState.phase] || 'Sẵn sàng';
+            document.getElementById('tel-time').textContent = `${rocketState.t.toFixed(2)} s`;
+
+            const alt = Math.max(0, rocketState.pos.y - 0.25);
+            const range = Math.hypot(rocketState.pos.x, rocketState.pos.z);
+
+            document.getElementById('tel-y').textContent = alt.toFixed(1);
+            document.getElementById('tel-x').textContent = `${rocketState.pos.x.toFixed(1)} m`;
+            document.getElementById('tel-z').textContent = `${rocketState.pos.z.toFixed(1)} m`;
+            document.getElementById('tel-range').textContent = range.toFixed(1);
+            document.getElementById('tel-vel').textContent = rocketState.vel.length().toFixed(1);
+            document.getElementById('tel-mass').textContent = Math.round(rocketState.m_total * 1000);
+        }
+
+        function onRocketLanded() {
+            const finalRange = Math.hypot(rocketState.pos.x, rocketState.pos.z);
+            const errDist = Math.hypot(
+                rocketState.pos.x - predictedLanding.pos.x,
+                rocketState.pos.z - predictedLanding.pos.z
+            );
+
+            document.getElementById('sum-apogee').textContent = `${rocketState.max_y.toFixed(1)} m`;
+            document.getElementById('sum-range').textContent = `${finalRange.toFixed(1)} m`;
+            document.getElementById('sum-error').textContent = `${errDist.toFixed(2)} m`;
+
+            showToast(`🎯 Đã tiếp đất! Cao nhất: ${rocketState.max_y.toFixed(1)}m • Tầm xa: ${finalRange.toFixed(1)}m`);
+        }
+
+        function getWindCardinal(deg) {
+            if (deg >= 338 || deg < 23) return 'Tây → Đông (+X)';
+            if (deg < 68) return 'Tây Bắc → Đông Nam';
+            if (deg < 113) return 'Bắc → Nam (+Z)';
+            if (deg < 158) return 'Đông Bắc → Tây Nam';
+            if (deg < 203) return 'Đông → Tây (-X)';
+            if (deg < 248) return 'Đông Nam → Tây Bắc';
+            if (deg < 293) return 'Nam → Bắc (-Z)';
+            return 'Tây Nam → Đông Bắc';
+        }
+
+        function updateParamsFromUI() {
+            simConfig.psi = parseInt(document.getElementById('inp-psi').value);
+            simConfig.water_ratio = parseInt(document.getElementById('inp-water').value) / 100.0;
+            simConfig.elev_deg = parseInt(document.getElementById('inp-elev').value);
+            simConfig.azim_deg = parseInt(document.getElementById('inp-azim').value);
+            simConfig.wind_speed = parseFloat(document.getElementById('inp-wind-speed').value);
+            simConfig.wind_dir_deg = parseInt(document.getElementById('inp-wind-dir').value);
+            simConfig.has_parachute = document.getElementById('chk-parachute').checked;
+            simConfig.show_vectors = document.getElementById('chk-vectors').checked;
+
+            document.getElementById('val-psi').textContent = simConfig.psi;
+            document.getElementById('val-water').textContent = Math.round(simConfig.water_ratio * 100);
+            document.getElementById('val-water-ml').textContent = Math.round(simConfig.water_ratio * 1500);
+            document.getElementById('val-elev').textContent = simConfig.elev_deg;
+            document.getElementById('val-azim').textContent = simConfig.azim_deg;
+            document.getElementById('val-wind-speed').textContent = simConfig.wind_speed.toFixed(1);
+            document.getElementById('val-wind-dir').textContent = simConfig.wind_dir_deg;
+            document.getElementById('val-wind-cardinal').textContent = getWindCardinal(simConfig.wind_dir_deg);
+
+            document.getElementById('hud-wind-speed').textContent = simConfig.wind_speed.toFixed(1);
+            document.getElementById('hud-wind-deg').textContent = simConfig.wind_dir_deg;
+            document.getElementById('hud-wind-arrow').style.transform = `rotate(${simConfig.wind_dir_deg - 90}deg)`;
+
+            computePredictedTrajectory();
+
+            if (rocketState.status === 'IDLE') {
+                initializeRocketPhysics();
+                updateTelemetryUI();
+            } else {
+                updateVisuals();
+            }
+        }
+
+        function applyPreset(type) {
+            if (rocketState.status !== 'IDLE') resetSimulation();
+            document.getElementById('inp-wind-speed').value = 2.5;
+            document.getElementById('inp-wind-dir').value = 90;
+            document.getElementById('inp-azim').value = 0;
+
+            const btnHigh = document.getElementById('preset-highest');
+            const btnFar = document.getElementById('preset-farthest');
+
+            if (type === 'highest') {
+                document.getElementById('inp-psi').value = 65;
+                document.getElementById('inp-water').value = 35;
+                document.getElementById('inp-elev').value = 90;
+                document.getElementById('chk-parachute').checked = true;
+
+                btnHigh.className = 'py-2 px-2 rounded-xl font-bold text-xs bg-sky-500 text-white shadow-sm shadow-sky-500/20 transition';
+                btnFar.className = 'py-2 px-2 rounded-xl font-bold text-xs bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700 transition';
+            } else {
+                document.getElementById('inp-psi').value = 75;
+                document.getElementById('inp-water').value = 35;
+                document.getElementById('inp-elev').value = 42;
+                document.getElementById('chk-parachute').checked = false;
+
+                btnFar.className = 'py-2 px-2 rounded-xl font-bold text-xs bg-sky-500 text-white shadow-sm shadow-sky-500/20 transition';
+                btnHigh.className = 'py-2 px-2 rounded-xl font-bold text-xs bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700 transition';
+            }
+            updateParamsFromUI();
+        }
+
+        function launchRocket() {
+            if (!predictedLanding.canLiftoff) {
+                showToast('⚠️ Áp suất quá thấp! Hãy tăng áp suất trên thanh trượt.');
+                return;
+            }
+            if (rocketState.status === 'LANDED') initializeRocketPhysics();
+            if (rocketState.status === 'IDLE' || rocketState.status === 'PAUSED') {
+                rocketState.status = 'FLYING';
+                showToast('🚀 Khai hỏa!');
+            }
+        }
+
+        function togglePause() {
+            if (rocketState.status === 'FLYING') {
+                rocketState.status = 'PAUSED';
+                showToast('⏸️ Tạm dừng');
+            } else if (rocketState.status === 'PAUSED') {
+                rocketState.status = 'FLYING';
+                showToast('▶️ Tiếp tục');
+            }
+        }
+
+        function resetSimulation() {
+            document.getElementById('sum-apogee').textContent = '-';
+            document.getElementById('sum-range').textContent = '-';
+            document.getElementById('sum-error').textContent = '-';
+            initializeRocketPhysics();
+            updateTelemetryUI();
+        }
+
+        function setTimeScale(scale) {
+            simConfig.time_scale = scale;
+            document.querySelectorAll('.ts-btn').forEach(btn => {
+                btn.classList.remove('bg-sky-500', 'text-white');
+                btn.classList.add('bg-slate-800', 'text-slate-300');
+            });
+            const activeBtn = document.getElementById(`ts-${scale}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('bg-slate-800', 'text-slate-300');
+                activeBtn.classList.add('bg-sky-500', 'text-white');
+            }
+            // Đồng bộ hiển thị con số tốc độ trên Mobile (x0.2, x0.5, x1, x2)
+            const mobSpeedBtn = document.getElementById('mob-btn-speed');
+            if (mobSpeedBtn) {
+                mobSpeedBtn.textContent = `x${scale}`;
+            }
+        }
+
+        // Luân phiên tốc độ trên Mobile: x0.2 -> x0.5 -> x1 -> x2 -> x0.2
+        function cycleTimeScale() {
+            const idx = SPEED_STEPS.indexOf(simConfig.time_scale);
+            const nextIdx = (idx === -1) ? 2 : (idx + 1) % SPEED_STEPS.length;
+            setTimeScale(SPEED_STEPS[nextIdx]);
+        }
+
+        function setCameraMode(mode) {
+            cameraMode = mode;
+            document.querySelectorAll('.cam-btn').forEach(btn => {
+                btn.className = 'cam-btn px-2.5 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 transition';
+            });
+
+            const activeBtn = document.getElementById(`cam-${mode}`);
+            if (activeBtn) {
+                activeBtn.className = 'cam-btn px-2.5 py-1.5 rounded-xl text-xs font-bold bg-sky-500 text-white shadow-sm shadow-sky-500/30 transition';
+            }
+
+            // Đồng bộ tên góc nhìn đang chọn trên nút Mobile
+            const modeObj = CAMERA_MODES.find(m => m.id === mode);
+            const mobCamLabel = document.getElementById('mob-cam-label');
+            if (modeObj && mobCamLabel) {
+                mobCamLabel.textContent = modeObj.label;
+            }
+
+            if (mode === 'overview') {
+                camera.position.set(24, 18, 28);
+                controls.target.set(6, 7, 0);
+            } else if (mode === 'pad') {
+                camera.position.set(3.2, 1.8, 4.0);
+                controls.target.set(0, 1.2, 0);
+            }
+        }
+
+        // Luân phiên góc nhìn trên Mobile: Toàn cảnh -> Bám tên lửa -> Bệ phóng -> Toàn cảnh
+        function cycleCameraMode() {
+            const idx = CAMERA_MODES.findIndex(m => m.id === cameraMode);
+            const nextIdx = (idx + 1) % CAMERA_MODES.length;
+            setCameraMode(CAMERA_MODES[nextIdx].id);
+        }
+
+        function togglePanel(panelId) {
+            document.getElementById(panelId).classList.toggle('hidden');
+        }
+
+        let toastTimer;
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.style.opacity = '1';
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            applyResponsiveDeviceUI(false);
+        }
+
+        // ============================================================================
+        // 8. VÒNG LẶP CHÍNH (GIỮ NGUYÊN 100%)
+        // ============================================================================
+        let lastFrameTime = performance.now();
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+
+            const frameDt = Math.min(0.05, (now - lastFrameTime) / 1000.0);
+            lastFrameTime = now;
+
+            if (rocketState.status === 'FLYING') {
+                const simDtTotal = frameDt * simConfig.time_scale;
+                const steps = Math.max(1, Math.round(simDtTotal / PHYS.dt));
+                const subDt = simDtTotal / steps;
+                const launchDir = getLaunchDirectionVector();
+                const windVec = getWindVector();
+
+                for (let i = 0; i < steps; i++) {
+                    advanceStateStep(rocketState, subDt, launchDir, windVec);
+                    if (rocketState.t > 0.05 && rocketState.pos.y <= 0.25 && rocketState.vel.y <= 0) {
+                        rocketState.pos.y = 0.25;
+                        rocketState.status = 'LANDED';
+                        rocketState.phase = 'LANDED';
+                        onRocketLanded();
+                        break;
+                    }
+                }
+
+                if (rocketState.phase === 'WATER' && Math.random() < 0.75) {
+                    spawnWaterSplash(rocketState.pos, rocketState.dir);
+                }
+
+                if (trajPoints.length === 0 || rocketState.pos.distanceTo(trajPoints[trajPoints.length - 1]) > 0.18) {
+                    trajPoints.push(rocketState.pos.clone());
+                    updateCurrentTrajLine();
+                }
+            }
+
+            updateParticles(frameDt);
+            updateVisuals();
+            updateTelemetryUI();
+
+            if (cameraMode === 'follow') {
+                const targetPos = rocketState.pos.clone();
+                controls.target.lerp(targetPos, 0.16);
+                const desiredCam = targetPos.clone().add(new THREE.Vector3(6, 2.5, 8));
+                camera.position.lerp(desiredCam, 0.09);
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function () {
+            initThreeJS();
+            setupMobilePanelTapToClose();
+            applyResponsiveDeviceUI(true);
+            setTimeScale(simConfig.time_scale);
+            setCameraMode(cameraMode);
+            updateParamsFromUI();
+            lastFrameTime = performance.now();
+            animate(lastFrameTime);
+        };
+    </script>
+</body>
+</html>
